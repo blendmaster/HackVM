@@ -1,0 +1,114 @@
+"use strict"
+@vm = 
+	screenmap: ->
+		# write to and refresh screen if necessary
+		# lots of dirty work to transform jack memory map into pixels
+		if 16384 <= @A <= 24575 
+			# each screen word is 16 pixels and each @screen pixel is 4 bytes (RGBA)
+			offset = ( @A - 16384 ) * 16 * 4
+			p = 0 # pixel offset of memory value
+			for i from offset til offset + 64 by 4 # 64 bits -> 4 bytes
+				# get bit at position p to get 0->255 (white) or 1->0 (black)
+				pixel = if (it >> p++ & 1) then 0 else 255
+				@screen.data[ i ] = pixel #R
+				@screen.data[ i + 1 ] = pixel #G
+				@screen.data[ i + 2 ] = pixel #B
+			
+			# redraw screen
+			@canvas.putImageData @screen, 0 0
+
+	booted: false
+	running: false
+
+	# beep boop
+	boot: !->
+		# two bytes per 16 bit int
+		# RAM is cleared on boot
+		# length 24577 since address 24576 is the keyboard map
+		@RAMBuffer = new ArrayBuffer 24577 * 2
+		@RAM = new Int16Array @RAMBuffer
+
+		# initialize screen
+		@canvas.fillStyle = \white
+		@canvas.fillRect 0 0 512 256 # make screen opaque white
+		# screen now contains opaque white pixels
+		@screen = @canvas.getImageData 0 0 512 256
+
+		# since functions need to be able to pause themselves so keyboard events
+		# can be processed, we store a manual callstack
+		@callstack = []
+
+		# set stack pointer to 256 and add initial call to sys.init 
+		@RAM[0] = 256
+		@call \Sys.init
+
+		@booted = true
+
+	# start, optionally passed a label position to resume with
+	start: !( label ) -> 
+		vm.boot! unless vm.booted
+		vm.running = true
+
+		while vm.callstack.length > 0
+			# pop and run current function starting at label
+			if vm.callstack.pop! label
+				# if the last function returned a label, it needed keyboard access
+				# starting from that point, so we re-add start to the callback queue
+				# so javascript can process a key event
+				setTimeout do
+					-> vm.start that
+					0
+		vm.running = false
+
+	# remap some keys to vm spec
+	keys:
+		13: 128 # enter
+		8: 129 # backspace
+		37: 130 # left arrow
+		38: 131 # up arrow
+		39: 132 # right arrow
+		40: 133 # down arrow
+		36: 134 # home
+		35: 135 # end
+		33: 136 # page up
+		34: 137 # page down
+		46: 139 # delete
+		27: 140 # escape
+		# f1-f12
+		112: 141
+		113: 142
+		114: 143
+		115: 144
+		116: 145
+		117: 146
+		118: 147
+		119: 148
+		120: 149
+		121: 150
+		122: 151
+		123: 152
+		# ASCII keys that javascript doesn't map correctly
+		186: 59 # ;
+		187: 61 # =
+		188: 44 # ,
+		189: 45 # -
+		190: 46 # .
+		191: 47 # /
+		192: 96 # `
+		219: 91 # [
+		220: 92 # \
+		221: 93 # ]
+		222: 39 # '
+		# javascript has these weird math key codes that override = and -
+		107: 61
+		109: 45
+
+	keyboard: ({keyCode: key}: e) ->
+		# XXX pressing unsupport vm keys, but supported js keys,
+		# like shift, ctrl, etc will change RAM, but won't really be valid in vm
+		vm.RAM[24576] = vm.keys[key] or key if vm.booted # remapped or just ascii
+		e.preventDefault! if vm.running # prevent scrolling, text searching, etc...
+
+	clearkeyboard: -> vm.RAM[24576] = 0 if vm.booted
+
+
