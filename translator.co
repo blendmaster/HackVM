@@ -45,6 +45,35 @@ pop_segment =
 	temp: -> "RAM[ #{5 + parseInt it, 10} ]"
 	pointer: -> "RAM[ #{3 + parseInt it, 10} ]"
 
+# holds name of current function
+# these are defined here, so flush can close over them
+current_fn = void
+current_fn_locals = void # num arguments 
+
+# all the lines of code for the current function
+code = []
+
+# adds boilerplate and pushes a new function object with internal code
+# equivalent to VM function
+flush = ->
+	console.log "defined #current_fn"
+	vm.functions[current_fn] = new Function do
+		'label'
+		"
+		var RAM = vm.RAM, frame, addr;
+		#{# initialize local variables
+		(for j til current_fn_locals
+			"RAM[ RAM[0]++ ] = 0"
+		).join ';'
+		};
+		loop: for(;;) {
+			switch( label ) {
+				case 0: #{code.join ';'};
+			}
+		}"
+	# add name attribute to function for debugging
+	vm.functions[current_fn].fn_name = current_fn
+
 @translate = !->
 	it = [it] unless Array.isArray it # wrap single files in an array
 	
@@ -55,12 +84,13 @@ pop_segment =
 	static_addr = 16
 	statics = {}
 
-
 	it.forEach !(input, idx)-> # for each file, with unique index
-		# holds name of current function
-		current_fn = void
+		# start fresh
+		current_fn := void
+		current_fn_locals := void # num arguments 
+
 		# all the lines of code for the current function
-		code = []
+		code := []
 
 		# possible firefox bug, evaluates javascript:
 		# switch(label) {
@@ -104,31 +134,17 @@ pop_segment =
 				else if it.match /^pop (argument|local|static|this|that|pointer|temp) (\d+)$/
 					code.push "#{pop_segment[that.1] that.2} = RAM[ --RAM[0] ]"
 				else if match = it.match /^function ([A-Za-z\._\:][\w_\.\:]+) (\d+)$/
-					# flush last function, with text body, and one parameter 'label'
 					if current_fn
-						console.log "defined #current_fn"
-						vm.functions[current_fn] = new Function do
-							'label'
-							"
-							var RAM = vm.RAM, frame, addr;
-							#{# initialize local variables
-							(for j til parseInt match.2
-								"RAM[ RAM[0]++ ] = 0"
-							).join ';'
-							};
-							loop: for(;;) {
-								switch( label ) {
-									case 0: #{code.join ';'};
-								}
-							}
-							"
+						flush! # add to vm.functions
 						# start new function
 						code := [] 
 						current_fn := match.1
+						current_fn_locals = parseInt match.2, 10
 						label := 1
 						labels := {}
 					else # set current fn only, for first function definition
 						current_fn := match.1
+						current_fn_locals = parseInt match.2, 10
 				else if it.match /^call ([A-Za-z\._\:][\w_\.\:]+) (\d+)$/
 					code.push do
 						"RAM[ RAM[0]++ ] = #{label}" # pushing return address as label addr
@@ -138,6 +154,7 @@ pop_segment =
 						"RAM[ RAM[0]++ ] = RAM[ RAM[ #THAT ] ]"
 						"RAM[ #ARG ] = RAM[0] - #{parseInt(that.2, 10) + 5}" # num of locals + stack frame
 						"RAM[ #LCL ] = RAM[0]"
+						"console.log('calling #{that.1} from #{current_fn}')"
 						"vm.callstack.push( vm.functions['#{that.1}'] )"
 						"vm.label = 0" # set starting address for called function to beginning (default)
 						"return" # give control to top of callstack
@@ -168,4 +185,7 @@ pop_segment =
 					code.push "RAM[ RAM[0] - 1 ] = #{that}RAM[ RAM[0] - 1 ]"
 				else
 					throw new Error """couldn't parse "#it" around line #i in file "#name"!"""
+		# flush last function
+		console.log "flush last function"
+		flush! # add to vm.functions
 

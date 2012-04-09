@@ -38,8 +38,8 @@
 		# Sys.init
 		@callstack = [@functions.\Sys.init]
 		
-		# reset label to undefined
-		@label = void
+		# reset label to start of Sys.init
+		@label = 0
 
 		# set stack pointer to 261, simulating Sys.init call
 		@RAM[0] = 261
@@ -57,11 +57,14 @@
 			# call top function starting at the given label
 			# passing the label in simulates the setting of the program counter
 			# to the correct return instruction
+			console.log "executing #{vm.callstack[len-1].fn_name} at label: #{vm.label}"
 			vm.callstack[len-1] vm.label
 			if vm.io # pause to clear keyboard callback
 				vm.io = false
 				setTimeout vm.start, 0
 				return 
+			setTimeout vm.start, 100
+			return
 
 		vm.running = false
 

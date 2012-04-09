@@ -15,15 +15,17 @@ document.getElementById \file .addEventListener \change !->
 	# using multiple readers for parallel process is probably
 	# of dubious value
 	reader.onload = ->
+		file_texts.push @result
 		if files.length is 0
 			translate file_texts
 			vm.reset!
 			start.textContent = "Start"
 			start.disabled = false
 		else
-			file_texts.push @result
+			console.log "reading #{files[*-1].name}"
 			@readAsText files.pop!
 	
+	console.log "reading #{files[*-1].name}"
 	reader.readAsText files.pop!
 
 document.getElementById \start .addEventListener \click !-> vm.start!
