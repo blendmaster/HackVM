@@ -50,8 +50,6 @@ pop_segment =
 	
 	# initialize and remove all previous functions
 	vm.functions = {}
-	# TODO rewrite sys.halt to not be an infinite loop, and sys.wait to use
-	# setTimeout
 
 	# keep track of all the static variables used across the files
 	static_addr = 16
@@ -108,9 +106,8 @@ pop_segment =
 				else if match = it.match /^function ([A-Za-z\._\:][\w_\.\:]+) (\d+)$/
 					# flush last function, with text body, and one parameter 'label'
 					if current_fn
-						console.log "flushing #current_fn"
-						console.log code.join \;
-						console.log (vm.functions[current_fn] = new Function do
+						console.log "defined #current_fn"
+						vm.functions[current_fn] = new Function do
 							'label'
 							"
 							var RAM = vm.RAM, frame, addr;
@@ -124,7 +121,7 @@ pop_segment =
 									case 0: #{code.join ';'};
 								}
 							}
-							").toString!
+							"
 						# start new function
 						code := [] 
 						current_fn := match.1
