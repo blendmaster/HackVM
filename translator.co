@@ -46,9 +46,8 @@ pop_segment =
 	pointer: -> "RAM[ #{3 + parseInt it, 10} ]"
 
 # holds name of current function
-# these are defined here, so flush can close over them
+# defined here, so flush can close over them
 current_fn = void
-current_fn_locals = void # num arguments 
 
 # all the lines of code for the current function
 code = []
@@ -56,16 +55,10 @@ code = []
 # adds boilerplate and pushes a new function object with internal code
 # equivalent to VM function
 flush = ->
-	console.log "defined #current_fn"
 	vm.functions[current_fn] = new Function do
 		'label'
 		"
 		var RAM = vm.RAM, frame, addr;
-		#{# initialize local variables
-		(for j til current_fn_locals
-			"RAM[ RAM[0]++ ] = 0"
-		).join ';'
-		};
 		loop: for(;;) {
 			switch( label ) {
 				case 0: #{code.join ';'};
@@ -87,10 +80,6 @@ flush = ->
 	it.forEach !(input, idx)-> # for each file, with unique index
 		# start fresh
 		current_fn := void
-		current_fn_locals := void # num arguments 
-
-		# all the lines of code for the current function
-		code := []
 
 		# possible firefox bug, evaluates javascript:
 		# switch(label) {
@@ -102,8 +91,8 @@ flush = ->
 		# thus, we start at label 1, leaving label 0 for the beginning
 		#
 		# used to number each of the labels generated in the function
-		label = 1
-		labels = {} # hash of label name to number
+		label = void
+		labels = void
 
 		# this is defined here to take close over labels, so we can set
 		# a label for keyboard returns
@@ -134,27 +123,24 @@ flush = ->
 				else if it.match /^pop (argument|local|static|this|that|pointer|temp) (\d+)$/
 					code.push "#{pop_segment[that.1] that.2} = RAM[ --RAM[0] ]"
 				else if match = it.match /^function ([A-Za-z\._\:][\w_\.\:]+) (\d+)$/
-					if current_fn
-						flush! # add to vm.functions
-						# start new function
-						code := [] 
-						current_fn := match.1
-						current_fn_locals = parseInt match.2, 10
-						label := 1
-						labels := {}
-					else # set current fn only, for first function definition
-						current_fn := match.1
-						current_fn_locals = parseInt match.2, 10
+					flush! if current_fn
+					# start new function
+					code := [] 
+					current_fn := match.1
+					# initialize local variables
+					for j til parseInt match.2, 10
+						code.push "RAM[ RAM[0]++ ] = 0"
+					label := 1
+					labels := {}
 				else if it.match /^call ([A-Za-z\._\:][\w_\.\:]+) (\d+)$/
 					code.push do
 						"RAM[ RAM[0]++ ] = #{label}" # pushing return address as label addr
-						"RAM[ RAM[0]++ ] = RAM[ RAM[ #LCL ] ]"
-						"RAM[ RAM[0]++ ] = RAM[ RAM[ #ARG ] ]"
-						"RAM[ RAM[0]++ ] = RAM[ RAM[ #THIS ] ]"
-						"RAM[ RAM[0]++ ] = RAM[ RAM[ #THAT ] ]"
-						"RAM[ #ARG ] = RAM[0] - #{parseInt(that.2, 10) + 5}" # num of locals + stack frame
+						"RAM[ RAM[0]++ ] = RAM[ #LCL ]"
+						"RAM[ RAM[0]++ ] = RAM[ #ARG ]"
+						"RAM[ RAM[0]++ ] = RAM[ #THIS ]"
+						"RAM[ RAM[0]++ ] = RAM[ #THAT ]"
+						"RAM[ #ARG ] = RAM[0] - #{parseInt(that.2, 10) + 5}" # num of args + stack frame
 						"RAM[ #LCL ] = RAM[0]"
-						"console.log('calling #{that.1} from #{current_fn}')"
 						"vm.callstack.push( vm.functions['#{that.1}'] )"
 						"vm.label = 0" # set starting address for called function to beginning (default)
 						"return" # give control to top of callstack
@@ -163,7 +149,7 @@ flush = ->
 					code.push do
 						"frame = RAM[ #LCL ]"
 						"vm.label = RAM[ frame - 5 ]" # set "return address"
-						"RAM[ RAM[ #ARG ] ] = RAM[ RAM[0]-- ]"
+						"RAM[ RAM[ #ARG ] ] = RAM[ --RAM[0] ]"
 						"RAM[0] = RAM[ #ARG ] + 1"
 						"RAM[ #THAT ] = RAM[ frame - 1 ]"
 						"RAM[ #THIS ] = RAM[ frame - 2 ]"
@@ -176,16 +162,15 @@ flush = ->
 				else if it.match /^goto ([A-Za-z\._\:][\w_\.\:]+)$/
 					code.push "label = #{labels[that.1] ?= label++ }; continue loop"
 				else if it.match /^if-goto ([A-Za-z\._\:][\w_\.\:]+)$/
-					code.push "if(RAM[ RAM[0]-- ] !== 0) { label = #{labels[that.1] ?= label++ }; continue loop; }"
+					code.push "if(RAM[ --RAM[0] ] !== 0) { label = #{labels[that.1] ?= label++ }; continue loop; }"
 				else if arithmetic[it]
-					code.push "RAM[ --RAM[0] ] = RAM[ RAM[0] - 1 ] #that RAM[ RAM[0] ]"
+					code.push "RAM[ --RAM[0] - 1 ] = RAM[ RAM[0] - 1 ] #that RAM[ RAM[0] ]"
 				else if boolean[it]
-					code.push "RAM[ --RAM[0] ] = RAM[ RAM[0] - 1 ] #that RAM[ RAM[0] ] ? -1 : 0"
+					code.push "RAM[ --RAM[0] - 1 ] = RAM[ RAM[0] - 1 ] #that RAM[ RAM[0] ] ? -1 : 0"
 				else if unary[it]
 					code.push "RAM[ RAM[0] - 1 ] = #{that}RAM[ RAM[0] - 1 ]"
 				else
 					throw new Error """couldn't parse "#it" around line #i in file "#name"!"""
 		# flush last function
-		console.log "flush last function"
 		flush! # add to vm.functions
 
