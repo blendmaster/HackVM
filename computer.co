@@ -11,9 +11,16 @@
 			@screen.data[ i + 1 ] = pixel #G
 			@screen.data[ i + 2 ] = pixel #B
 
-		# redraw screen
-		@canvas.putImageData @screen, 0 0
-		
+		# queue screen redraw next time execution pauses,
+		# either at Sys.wait or key access
+		# this avoids redraws which aren't really visible anyway
+		unless @refresh
+			@refresh = setTimeout do
+				-> 
+					vm.canvas.putImageData vm.screen, 0 0
+					vm.refresh = void
+				0
+
 	# beep boop
 	boot: !->
 		# two bytes per 16 bit int
@@ -22,7 +29,7 @@
 		#
 		# We still need this even in a virtual machine so that
 		# the Hack OS's direct memory access and memory maps still work
-		# otherwise, we could just make our own stack pointers with native JS
+		# otherwise, we could just make our own stacks with native JS
 		# Arrays
 		@RAMBuffer = new ArrayBuffer 24577 * 2
 		@RAM = new Int16Array @RAMBuffer
