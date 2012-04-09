@@ -1,30 +1,29 @@
 "use strict"
 @vm = 
-	screenmap: ->
-		# write to and refresh screen if necessary
-		# lots of dirty work to transform jack memory map into pixels
-		if 16384 <= @A <= 24575 
-			# each screen word is 16 pixels and each @screen pixel is 4 bytes (RGBA)
-			offset = ( @A - 16384 ) * 16 * 4
-			p = 0 # pixel offset of memory value
-			for i from offset til offset + 64 by 4 # 64 bits -> 4 bytes
-				# get bit at position p to get 0->255 (white) or 1->0 (black)
-				pixel = if (it >> p++ & 1) then 0 else 255
-				@screen.data[ i ] = pixel #R
-				@screen.data[ i + 1 ] = pixel #G
-				@screen.data[ i + 2 ] = pixel #B
-			
-			# redraw screen
-			@canvas.putImageData @screen, 0 0
+	map_screen: (addr, value) -> # lots of dirty work to transform jack memory map into pixels
+		# each screen word is 16 pixels and each @screen pixel is 4 bytes (RGBA)
+		offset = ( addr - 16384 ) * 16 * 4
+		p = 0 # pixel offset of memory value
+		for i from offset til offset + 64 by 4 # 64 bits -> 4 bytes
+			# get bit at position p to get 0->255 (white) or 1->0 (black)
+			pixel = if (value >> p++ & 1) then 0 else 255
+			@screen.data[ i ] = pixel #R
+			@screen.data[ i + 1 ] = pixel #G
+			@screen.data[ i + 2 ] = pixel #B
 
-	booted: false
-	running: false
-
+		# redraw screen
+		@canvas.putImageData @screen, 0 0
+		
 	# beep boop
 	boot: !->
 		# two bytes per 16 bit int
 		# RAM is cleared on boot
 		# length 24577 since address 24576 is the keyboard map
+		#
+		# We still need this even in a virtual machine so that
+		# the Hack OS's direct memory access and memory maps still work
+		# otherwise, we could just make our own stack pointers with native JS
+		# Arrays
 		@RAMBuffer = new ArrayBuffer 24577 * 2
 		@RAM = new Int16Array @RAMBuffer
 
@@ -35,30 +34,44 @@
 		@screen = @canvas.getImageData 0 0 512 256
 
 		# since functions need to be able to pause themselves so keyboard events
-		# can be processed, we store a manual callstack
-		@callstack = []
+		# can be processed, we store a manual callstack, starting with 
+		# Sys.init
+		@callstack = [@functions.\Sys.init]
+		
+		# reset label to undefined
+		@label = void
 
-		# set stack pointer to 256 and add initial call to sys.init 
-		@RAM[0] = 256
-		@call \Sys.init
+		# set stack pointer to 261, simulating Sys.init call
+		@RAM[0] = 261
 
 		@booted = true
+		#
+		# flag indicating need to keyboard IO
+		@io = false
 
-	# start, optionally passed a label position to resume with
-	start: !( label ) -> 
+	start: !-> 
 		vm.boot! unless vm.booted
 		vm.running = true
 
-		while vm.callstack.length > 0
-			# pop and run current function starting at label
-			if vm.callstack.pop! label
-				# if the last function returned a label, it needed keyboard access
-				# starting from that point, so we re-add start to the callback queue
-				# so javascript can process a key event
-				setTimeout do
-					-> vm.start that
-					0
+		while (len = vm.callstack.length) > 0
+			# call top function starting at the given label
+			# passing the label in simulates the setting of the program counter
+			# to the correct return instruction
+			vm.callstack[len-1] vm.label
+			if vm.io # pause to clear keyboard callback
+				vm.io = false
+				setTimeout vm.start, 0
+				return 
+
 		vm.running = false
+
+	stop: !->
+		vm.running = false
+		vm.callstack = []
+
+	reset: !->
+		vm.stop!
+		vm.boot!
 
 	# remap some keys to vm spec
 	keys:

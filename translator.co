@@ -16,137 +16,143 @@
 # This approach is similar to what emscripten does for LLVM->JS,
 # but I don't have their fancy Relooping algorithm for converting
 # labels back to native javascript control statements, at least not yet.
+arithmetic = add: \+, sub: \-, and: \&, or: \|
+unary = neg: \-, not: \~
+boolean = eq: \===, gt: \>, lt: \<
+
+# ram positions of segments
+LCL = 1
+ARG = 2
+THIS = 3
+THAT = 4
+
+load_from_base = (base) -> -> "RAM[ RAM[ #base ] + #it ]"
+push_segment = 
+	constant: -> it
+	argument: load_from_base ARG
+	local: load_from_base LCL
+	this: load_from_base THIS
+	that: load_from_base THAT
+	temp: -> "RAM[ #{ 5 + parseInt it, 10 } ]"
+	pointer: -> "RAM[ #{ 3 + parseInt it, 10 } ]"
+
+pop_from_base = (base) -> -> "RAM[ RAM[ #base ] + #it ] = RAM[ --RAM[0] ]"
+pop_segment = 
+	argument: pop_from_base ARG
+	local: pop_from_base LCL
+	this: pop_from_base THIS
+	temp: -> "RAM[ #{ 5 + parseInt it, 10 } ] = RAM[ --RAM[0] ]"
+	pointer: -> "RAM[ #{ 3 + parseInt it, 10 } ] = RAM[ --RAM[0] ]"
+
 @translate = !->
 	it = [it] unless Array.isArray it # wrap single files in an array
-	# translate basic instructions
-	arithmetic = add: \+, sub: \-, and: \&, or: \|
-	unary = neg: \-, not: \~
-	boolean = eq: \===, gt: \>, lt: \<
-
-	push_segment = 
-		constant: -> it
-		argument: load_from_base \ARG
-		local: load_from_base \LCL
-		this: load_from_base \THIS
-		that: load_from_base \THAT
-		temp: -> load_D 5 + parseInt it, 10
-		pointer: -> load_D 3 + parseInt it, 10
-	# TODO reading from pointer needs a check
-	# to see if pointer is 24576 and if it is
-	# generate a label/case and return from it, so
-	# we can setTimeout to the other side of the keyboard callback
-	pop_segment = 
-		argument: addr_from_base \ARG
-		local: addr_from_base \LCL
-		this: addr_from_base \THIS
-		that: addr_from_base \THAT
-		temp: -> set_D 5 + parseInt it, 10
-		pointer: -> set_D 3 + parseInt it, 10
 	
 	# initialize and remove all previous functions
 	vm.functions = {}
+	# TODO rewrite sys.halt to not be an infinite loop, and sys.wait to use
+	# setTimeout
+
+	# keep track of all the static variables used across the files
+	static_addr = 16
+	statics = {}
+
 
 	it.forEach !(input, idx)-> # for each file, with unique index
-			# TODO some way to map static variables properly to RAM[16] and up
-			# can use idx of file instead of filename, since it's still unique
+		# holds name of current function
+		current_fn = void
+		# all the lines of code for the current function
+		code = []
 
-			# holds name of current function
-			current_fn = void
-			# all the lines of code for the current function
-			code = []
+		# used to number each of the labels generated in the function
+		label = 0
+		labels = {} # hash of label name to number
 
-			input # strip comments and whitespace, then split into lines
-				.replace /\/\/.*/gm "" .trim! .split /\s*[\n\r]+\s*/
-				.forEach (it, i) -> # parse instructions
-					if it.match /^push (constant|argument|local|static|this|that|pointer|temp) (\d+)$/
-						code.push "RAM[ RAM[0]++ ] = #{push_segment[that.1] that.2}"
-					else if it.match /^pop (argument|local|static|this|that|pointer|temp) (\d+)$/
-						code.push "RAM[ RAM[ #{ pop_segment[that.1] that.2} ] ] = RAM[ --RAM[0] ]"
-					else if it.match /^function ([A-Za-z\._\:][\w_\.\:]+) (\d+)$/
-						# flush last function, with text body, and one parameter 'label'
-						vm.functions[current_fn] = new Function do
-							'label'
-							"
-							var RAM = vm.RAM;
-							#{ # initialize local variables
-							(for j til parseInt that.2
-								"RAM[ RAM[0]++ ] = 0"
-							).join ';'
-							};
-							loop: for(;;) {
-								switch( label ) {
-									default: #{ code.join ';'};
-								}
+		# this is defined here to take close over labels
+		pop_segment.that = ->
+			# assuming only the 'that' pointer will be used to access keyboard and
+			# memory, so we can detect those and do the dirty work
+			# map_screen recieves the top address of the stack to convert into canvas
+			# pixels, while keyboard access pauses execution
+			"addr = RAM[ #THAT ] + #it;
+			if( addr == 24576 ) {
+				vm.io = true;
+				vm.label = #label;
+				return;
+			}
+			if( addr >= 16384 ) { vm.map_screen( addr, RAM[ RAM[0] - 1 ] ); }
+			case #{ label++ }: 
+				RAM[ RAM[ #THAT ] + #it ] = RAM[ --RAM[0] ]"
+
+		# these are closed over the current file
+		push_segment.static = -> "RAM[ #{ statics["#idx.#it"] ?= statics++ } ]"
+		pop_segment.static = -> "RAM[ #{ statics["#idx.#it"] ?= statics++ } ] = RAM[ --RAM[0] ]"
+
+		input # strip comments and whitespace, then split into lines
+			.replace /\/\/.*/gm "" .trim! .split /\s*[\n\r]+\s*/
+			.forEach (it, i) -> # parse instructions
+				if it.match /^push (constant|argument|local|static|this|that|pointer|temp) (\d+)$/
+					code.push "RAM[ RAM[0]++ ] = #{push_segment[that.1] that.2}"
+				else if it.match /^pop (argument|local|static|this|that|pointer|temp) (\d+)$/
+					code.push pop_segment[that.1] that.2
+				else if it.match /^function ([A-Za-z\._\:][\w_\.\:]+) (\d+)$/
+					# flush last function, with text body, and one parameter 'label'
+					vm.functions[current_fn] = new Function do
+						'label'
+						"
+						var RAM = vm.RAM, frame, addr;
+						#{ # initialize local variables
+						(for j til parseInt that.2
+							"RAM[ RAM[0]++ ] = 0"
+						).join ';'
+						};
+						loop: for(;;) {
+							switch( label ) {
+								default: #{ code.join ';'};
 							}
-							"
-						# start new function
-						code := [] 
-						current_fn := that.1
-					else if it.match /^call ([A-Za-z\._\:][\w_\.\:]+) (\d+)$/
-						code.push do
-							"RAM[ RAM[0]++ ] = RAM[ RAM[ #LCL ] ]"
-							"RAM[ RAM[0]++ ] = RAM[ RAM[ #ARG ] ]"
-							"RAM[ RAM[0]++ ] = RAM[ RAM[ #THIS ] ]"
-							"RAM[ RAM[0]++ ] = RAM[ RAM[ #THAT ] ]"
-
-						lines do
-							push_A "#name-return-from-call-#i"
-							push_M \LCL
-							push_M \ARG
-							push_M \THIS
-							push_M \THAT
-							\@SP
-							\D=M
-							\@LCL # set LCL to SP
-							\M=D 
-							\@5 # set ARG to SP-5-args
-							\D=D-A
-							A that[2] #subtract number of args
-							\D=D-A
-							\@ARG
-							\M=D
-							A that[1]
-							'A;JMP'
-							label "#name-return-from-call-#i"
-					else if it is \return
-						lines do
-							\@LCL
-							\D=M-1
-							store_D \FRAME # store frame pointer
-							\@4
-							\A=D-A
-							\D=M # D contains *(FRAME-5)
-							store_D \RET # return addr stored
-							pop_D 
-							\@ARG
-							\A=M
-							\M=D # reposition return value at *ARG
-							\@ARG
-							\D=M+1
-							store_D \SP # restore stack pointer
-							pop_frame \THAT
-							pop_frame \THIS
-							pop_frame \ARG
-							pop_frame \LCL
-							\@RET # grab return address
-							\A=M
-							'A;JMP'
-					else if it.match /^label ([A-Za-z\._\:][\w_\.\:]+)$/
-						code.push "case '#it': "
-					else if it.match /^goto ([A-Za-z\._\:][\w_\.\:]+)$/
-						# use case statement inside loop to simulate goto in javascript
-						# slower, but more easily implemented than trying to reconstruct
-						# if and while statements in native javscript from labels
-						code.push "label = '#{that.1}'; continue loop"
-					else if it.match /^if-goto ([A-Za-z\._\:][\w_\.\:]+)$/
-						code.push "if(RAM[0] !== 0) { label = '#it'; continue loop; }"
-					# TODO check spec for order of operands
-					else if arithmetic[it]
-						code.push "RAM[ --RAM[0] ] = RAM[ RAM[0] ] #that RAM[ RAM[0] - 1 ]"
-					else if boolean[it]
-						code.push "RAM[ --RAM[0] ] = RAM[ RAM[0] - 1 ] #it RAM[ RAM[0] ] ? -1 : 0"
-					else if unary[it]
-						code.push "RAM[ RAM[0] ] = #{that}RAM[ RAM[0] ]"
-					else
-						throw new Error """couldn't parse "#it" around line #i in file "#name"!"""
+						}
+						"
+					# start new function
+					code := [] 
+					current_fn := that.1
+					label := 0
+					labels := {}
+				else if it.match /^call ([A-Za-z\._\:][\w_\.\:]+) (\d+)$/
+					code.push do
+						"RAM[ RAM[0]++ ] = #{label}" # pushing return address as label addr
+						"RAM[ RAM[0]++ ] = RAM[ RAM[ #LCL ] ]"
+						"RAM[ RAM[0]++ ] = RAM[ RAM[ #ARG ] ]"
+						"RAM[ RAM[0]++ ] = RAM[ RAM[ #THIS ] ]"
+						"RAM[ RAM[0]++ ] = RAM[ RAM[ #THAT ] ]"
+						"RAM[ #ARG ] = RAM[0] - #{parseInt(that.2, 10) - 5}"
+						"RAM[ #LCL ] = RAM[0]"
+						"vm.callstack.push( vm.functions['#{that.1}'] )"
+						"vm.label = void 0" # set starting address for called function to beginning (default)
+						"return" # give control to top of callstack
+						"case #{label++}: " # returned from function
+				else if it is \return
+					code.push do
+						"frame = RAM[ #LCL ]"
+						"RAM[ RAM[ #ARG ] ] = RAM[ RAM[0]-- ]"
+						"RAM[0] = RAM[ #ARG ] + 1"
+						"RAM[ #THAT ] = RAM[ frame - 1 ]"
+						"RAM[ #THIS ] = RAM[ frame - 2 ]"
+						"RAM[ #ARG ] = RAM[ frame - 3 ]"
+						"RAM[ #LCL ] = RAM[ frame - 4]"
+						"vm.callstack.pop()" # pop this function off callstack
+						"vm.label = RAM[ frame - 5 ]" # set "return address"
+						"return"
+				else if it.match /^label ([A-Za-z\._\:][\w_\.\:]+)$/
+					code.push "case #{ labels[that.1] ?= label++ }: "
+				else if it.match /^goto ([A-Za-z\._\:][\w_\.\:]+)$/
+					code.push "label = #{ labels[that.1] ?= label++ }; continue loop"
+				else if it.match /^if-goto ([A-Za-z\._\:][\w_\.\:]+)$/
+					code.push "if(RAM[ RAM[0]-- ] !== 0) { label = #{ labels[that.1] ?= label++ }; continue loop; }"
+				else if arithmetic[it]
+					code.push "RAM[ --RAM[0] ] = RAM[ RAM[0] - 1 ] #that RAM[ RAM[0] ]"
+				else if boolean[it]
+					code.push "RAM[ --RAM[0] ] = RAM[ RAM[0] - 1 ] #it RAM[ RAM[0] ] ? -1 : 0"
+				else if unary[it]
+					code.push "RAM[ RAM[0] - 1 ] = #{that}RAM[ RAM[0] - 1 ]"
+				else
+					throw new Error """couldn't parse "#it" around line #i in file "#name"!"""
 

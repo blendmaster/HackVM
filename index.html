@@ -1,22 +1,22 @@
 <!doctype html>
 <html>
 <head>
-<title>HackJS</title>
+<title>HackVM</title>
 
 <script src="computer.js"></script>
-<script src="assembler.js"></script>
+<script src="translator.js"></script>
 
 <script src="driver.js" defer></script>
 
 </head>
 <body>
 <hgroup>
-	<h1>HackJS</h1>
-	<h2>A Hack platform simulator in your browser</h2>
+	<h1>HackVM</h1>
+	<h2>A Hack virtual machine on simulated Hack hardware in your browser</h2>
 </hgroup>
-<p>You can try <a href="Pong.asm">Pong</a> if you don't have any assembly handy. Download it to your computer first.</p>
+
 <div>
-<label>Load a hack .asm file: <input type="file" id="file" /></label>
+<label>Load a hack .vm file: <input type="file" id="file" /></label>
 
 <button type="button" id="start">Start</button>
 <button type="button" id="stop">Stop</button>
