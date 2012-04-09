@@ -93,11 +93,13 @@ flush = ->
 @translate = !->
 	it = [it] unless Array.isArray it # wrap single files in an array
 	
-	# initialize and remove all previous functions
+	# clear previous functions
 	vm.functions = {}
 
 	# keep track of all the static variables used across the files
-	static_addr = 16
+	# this starts at 29, because the builtin OS functions in builtins.js
+	# use the first 13 static variables
+	static_addr = 29
 	statics = {}
 
 	it.forEach !(input, idx)-> # for each file, with unique index
@@ -202,4 +204,4 @@ flush = ->
 					throw new Error """couldn't parse "#it" around line #i in file "#name"!"""
 		# flush last function
 		flush! # add to vm.functions
-
+	

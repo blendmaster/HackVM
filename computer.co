@@ -40,6 +40,9 @@
 		# screen now contains opaque white pixels
 		@screen = @canvas.getImageData 0 0 512 256
 
+		# add builtin functions to function list
+		@functions <<< @builtins
+
 		# since functions need to be able to pause themselves so keyboard events
 		# can be processed, we store a manual callstack, starting with 
 		# Sys.init
@@ -56,30 +59,6 @@
 		# flag indicating need to keyboard IO
 		@io = false
 
-		# gonna cheat a bit and rewrite the implementations
-		# of some Jack-level OS functions to make the VM run faster and better
-		
-		# no infinite while loop, just clear callstack
-		@functions.\Sys.halt = !-> 
-			vm.callstack = []
-		
-		# actually use setTimeout
-		@functions.\Sys.wait = !->
-			RAM = vm.RAM
-			vm.pause = RAM[ RAM[ 2 ] ] # argument 0
-			# regular return
-			frame = RAM[ 1 ]
-			vm.label = RAM[ frame - 5 ] 
-			RAM[ RAM[ 2 ] ] = RAM[ --RAM[0] ]
-			RAM[ 0 ] = RAM[ 2 ] + 1
-			RAM[ 4 ] = RAM[ frame - 1 ]
-			RAM[ 3 ] = RAM[ frame - 2 ]
-			RAM[ 2 ] = RAM[ frame - 3 ]
-			RAM[ 1 ] = RAM[ frame - 4]
-			vm.callstack.pop! 
-
-		# TODO rewrite keyboard functions that poll kb to instead wait
-		# for event to fire
 
 	start: !-> 
 		vm.boot! unless vm.booted

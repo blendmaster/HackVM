@@ -1,5 +1,7 @@
+
 document.getElementById \file .addEventListener \change !->
 	reader = new FileReader
+	builtins = <[Array.vm Keyboard.vm Math.vm Memory.vm Output.vm Screen.vm String.vm Sys.vm]>
 
 	start = document.getElementById \start
 	start.disabled = true
@@ -7,7 +9,9 @@ document.getElementById \file .addEventListener \change !->
 
 	# gotta do some fancy async code in order to translate
 	# all the needed files
-	files = Array::filter.call @files, -> /^.+\.vm$/.test it.name
+	files = Array::filter.call @files, -> 
+		# return all non-builtin .vm files
+		/^.+\.vm$/.test it.name and (builtins.indexOf it.name) is -1
 	
 	file_texts = []
 
@@ -17,16 +21,22 @@ document.getElementById \file .addEventListener \change !->
 	reader.onload = ->
 		file_texts.push @result
 		if files.length is 0
-			translate file_texts
-			vm.reset!
-			start.textContent = "Start"
-			start.disabled = false
+			try
+				translate file_texts
+				vm.reset!
+				start.textContent = "Start"
+				start.disabled = false
+			catch e
+				alert "Error translating: #e"
 		else
 			console.log "reading #{files[*-1].name}"
 			@readAsText files.pop!
 	
-	console.log "reading #{files[*-1].name}"
-	reader.readAsText files.pop!
+	if files.length > 0
+		console.log "reading #{files[*-1].name}"
+		reader.readAsText files.pop!
+	else
+		alert "No non-OS .vm files found in your selection!"
 
 document.getElementById \start .addEventListener \click !-> vm.start!
 document.getElementById \stop .addEventListener \click !-> vm.stop!
