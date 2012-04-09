@@ -125,6 +125,11 @@ flush = ->
 			if( addr == 24576 ) {
 				vm.io = true;
 				vm.label = #label;
+				RAM[ 0 ] = SP;
+				RAM[ #LCL ] = LCL;
+				RAM[ #ARG ] = ARG;
+				RAM[ #THIS ] = THIS; 
+				RAM[ #THAT ] = THAT;
 				return;
 			}
 			case #{label++}: 
@@ -160,6 +165,11 @@ flush = ->
 						"RAM[ SP++ ] = THAT"
 						"RAM[ #ARG ] = SP - #{parseInt(that.2, 10) + 5}" # num of args + stack frame
 						"RAM[ #LCL ] = SP"
+						# recommit cached pointers
+						"RAM[ 0 ] = SP" 
+						"RAM[ #THIS ] = THIS" 
+						"RAM[ #THAT ] = THAT" 
+						
 						"vm.callstack.push( vm.functions['#{that.1}'] )"
 						"vm.label = 0" # set starting address for called function to beginning (default)
 						"return" # give control to top of callstack
@@ -168,7 +178,7 @@ flush = ->
 					code.push do
 						"frame = LCL"
 						"vm.label = RAM[ frame - 5 ]" # set "return address"
-						"RAM[ ARG ] = RAM[ --RAM[0] ]"
+						"RAM[ ARG ] = RAM[ --SP ]"
 						"RAM[0] = ARG + 1"
 						"RAM[ #THAT ] = RAM[ frame - 1 ]"
 						"RAM[ #THIS ] = RAM[ frame - 2 ]"
