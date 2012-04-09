@@ -1,3 +1,6 @@
+# load button proxies click to hidden file input
+document.getElementById \load .addEventListener \click -> 
+	document.getElementById \file .click!
 
 document.getElementById \file .addEventListener \change !->
 	reader = new FileReader
@@ -24,16 +27,15 @@ document.getElementById \file .addEventListener \change !->
 			try
 				translate file_texts
 				vm.reset!
-				start.textContent = "Start"
-				start.disabled = false
+				start.click! # start the game
 			catch e
 				alert "Error translating: #e"
+				start.textContent = "Start"
+				start.disabled = false
 		else
-			console.log "reading #{files[*-1].name}"
 			@readAsText files.pop!
 	
 	if files.length > 0
-		console.log "reading #{files[*-1].name}"
 		reader.readAsText files.pop!
 	else
 		alert "No non-OS .vm files found in your selection!"
@@ -49,3 +51,16 @@ vm.canvas = document.getElementById \canvas .getContext \2d
 document.addEventListener \keydown vm.keyboard
 document.addEventListener \keyup vm.clearkeyboard
 
+# computer's references
+vm.startbutton = document.getElementById \start
+vm.stopbutton = document.getElementById \stop
+vm.resetbutton = document.getElementById \reset
+
+# disable buttons to begin
+vm.startbutton.disabled = true
+vm.stopbutton.disabled = true
+vm.resetbutton.disabled = true
+
+# alert runtime errors
+window.addEventListener \error ->
+	alert "Runtime error! Current callstack: #{vm.callstack?map( -> it.fn_name ).join ', '}"

@@ -59,11 +59,10 @@
 		# flag indicating need to keyboard IO
 		@io = false
 
+		# enable reset
+		@resetbutton.disabled = false
 
-	start: !-> 
-		vm.boot! unless vm.booted
-		vm.running = true
-
+	run: !->
 		while (len = vm.callstack.length) > 0
 			# call top function starting at the given label
 			# passing the label in simulates the setting of the program counter
@@ -71,22 +70,37 @@
 			vm.callstack[len-1] vm.label
 			if vm.io # pause to clear keyboard callback
 				vm.io = false
-				vm.timeout = setTimeout vm.start, 0
+				vm.timeout = setTimeout vm.run, 0
 				return 
 			if vm.pause # handle custom Sys.wait
-				vm.timeout = setTimeout vm.start, vm.pause
+				vm.timeout = setTimeout vm.run, vm.pause
 				vm.pause = 0
 				return
 
-		vm.running = false
+		# done
+		vm.stop!
+
+	start: !-> 
+		vm.boot! unless vm.booted
+		vm.running = true
+		vm.startbutton.disabled = true
+		vm.startbutton.textContent = \Running...
+		vm.stopbutton.disabled = false
+		vm.stopbutton.textContent = \Stop
+		setTimeout vm.run, 0
 
 	stop: !->
-		vm.running = false
 		clearTimeout vm.timeout
+		vm.running = false
+		vm.startbutton.disabled = false
+		vm.startbutton.textContent = \Start
+		vm.stopbutton.disabled = true
+		vm.stopbutton.textContent = \Stopped
 
 	reset: !->
 		vm.stop!
-		vm.boot!
+		vm.booted = false
+		vm.start!
 
 	# remap some keys to vm spec
 	keys:

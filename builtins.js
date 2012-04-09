@@ -140,6 +140,8 @@ loop:
 vm.builtins['Sys.halt'] = function () {
     "use strict";
     vm.callstack = [];
+		vm.stop();
+		vm.booted = false;
 };
 
 vm.builtins['Sys.wait'] = function () {

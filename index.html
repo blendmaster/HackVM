@@ -16,17 +16,23 @@
 	<h2>A Hack virtual machine on simulated Hack hardware in your browser</h2>
 </hgroup>
 
-<div>
-<label>Load a hack .vm file: <input type="file" id="file" multiple /></label>
+<p>Press "Load" to select some .VM files to run. All Hack OS functions are already included, and non .vm files will be ignored, so you can compile a folder by selecting all the files in that folder. Any infinite loops in the .vm code will also hang your browser, so be sure to test your software before running!</p>
 
+<div>
+<input type="file" id="file" multiple hidden />
+<button type="button" id="load">Load</button>
 <button type="button" id="start">Start</button>
-<button type="button" id="stop">Stop</button>
+<button type="button" id="stop">Stopped</button>
 <button type="button" id="reset">Reset</button>
-<button type="button" id="step">Step</button>
+
 <span id="status"></span>
 </div>
 <div>
-<canvas id="canvas" width=512 height=256 ></canvas>
+<canvas id="canvas" width=512 height=256 >
+<p>Upgrade your web browser, dawg! You can't run &gt;canvas&lt;!</p>
+</canvas>
 </div>
+
+<small>&copy; 2012 Steven Ruppert.</small>
 </body>
 </html>
