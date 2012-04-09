@@ -26,29 +26,45 @@ ARG = 2
 THIS = 3
 THAT = 4
 
-push_base = (base) -> -> "RAM[ RAM[0]++ ] = RAM[ RAM[ #base ] + #it ]"
+push_base = (base) -> -> "RAM[ SP++ ] = RAM[ #base + #it ]"
 push_segment = 
-	constant: -> "RAM[ RAM[0]++ ] = #it"
-	argument: push_base ARG
-	local: push_base LCL
-	this: push_base THIS
+	constant: -> "RAM[ SP++ ] = #it"
+	argument: push_base \ARG
+	local: push_base \LCL
+	this: push_base \THIS
+	
 	# that defined inside loop to close over labels, so keyboard access can
 	# resume itself
-	temp: -> "RAM[ RAM[0]++ ] = RAM[ #{5 + parseInt it, 10} ]"
-	pointer: -> "RAM[ RAM[0]++ ] = RAM[ #{3 + parseInt it, 10} ]"
+	
+	temp: -> "RAM[ SP++ ] = RAM[ #{5 + parseInt it, 10} ]"
 
-pop_to_base = (base) -> -> "RAM[ RAM[ #base ] + #it ]"
+	# since THIS and THAT are cached, pointer pushes cached values
+	pointer: -> 
+		"RAM[ SP++ ] = #{switch addr = parseInt it, 10
+			case 0 then \THIS
+			case 1 then \THAT
+			default then "RAM[ #{3 + addr} ]"}"
+
+pop_to_base = (base) -> -> "RAM[ #base + #it ]"
 pop_segment = 
-	argument: pop_to_base ARG
-	local: pop_to_base LCL
-	this: pop_to_base THIS
-	# need to handle writing to screen
+	argument: pop_to_base \ARG
+	local: pop_to_base \LCL
+	this: pop_to_base \THIS
+
+	# need to handle writing to screen 
 	that: -> 
-		"addr = RAM[ #THAT ] + #it;
-		if( addr >= 16384 && addr < 24576 ) { vm.map_screen( addr, RAM[ RAM[0] - 1 ] ); }
-		RAM[ addr ]"
+		"addr = THAT + #it;
+		if( addr >= 16384 && addr < 24576 ) { vm.map_screen( addr, RAM[ SP - 1 ] ); }
+		RAM[ addr ]" # = RAM[ --SP ]
+	
 	temp: -> "RAM[ #{5 + parseInt it, 10} ]"
-	pointer: -> "RAM[ #{3 + parseInt it, 10} ]"
+
+	# work with cached this and that
+	pointer: -> 
+		switch addr = parseInt it, 10
+		case 0 then \THIS
+		case 1 then \THAT
+		default then "RAM[ #{3 + addr} ]"
 
 # holds name of current function
 # defined here, so flush can close over them
@@ -59,11 +75,13 @@ code = []
 
 # adds boilerplate and pushes a new function object with internal code
 # equivalent to VM function
+# in-ram pointers are cached at the beginning of the function
+#  and recommitted in calls and returns, for better performance
 flush = ->
 	vm.functions[current_fn] = new Function do
 		'label'
 		"
-		var RAM = vm.RAM, frame, addr;
+		var RAM = vm.RAM, SP = RAM[0], LCL = RAM[1], ARG = RAM[2], THIS = RAM[3], THAT = RAM[4], frame, addr;
 		loop: for(;;) {
 			switch( label ) {
 				case 0: #{code.join ';'};
@@ -103,17 +121,17 @@ flush = ->
 		# a label for keyboard returns
 		push_segment.that = ->
 			# assuming only the 'that' pointer will be used to access keyboard
-			"addr = RAM[ #THAT ] + #it;
+			"addr = THAT + #it;
 			if( addr == 24576 ) {
 				vm.io = true;
 				vm.label = #label;
 				return;
 			}
 			case #{label++}: 
-				RAM[ RAM[0]++ ] = RAM[ RAM[ #THAT ] + #it ]"
+				RAM[ SP++ ] = RAM[ THAT + #it ]"
 
 		# these are closed over the current file
-		push_segment.static = -> "RAM[ RAM[0]++ ] = RAM[ #{statics["#idx.#it"] ?= static_addr++} ]"
+		push_segment.static = -> "RAM[ SP++ ] = RAM[ #{statics["#idx.#it"] ?= static_addr++} ]"
 		pop_segment.static = -> "RAM[ #{statics["#idx.#it"] ?= static_addr++} ]"
 
 		input # strip comments and whitespace, then split into lines
@@ -122,7 +140,7 @@ flush = ->
 				if it.match /^push (constant|argument|local|static|this|that|pointer|temp) (\d+)$/
 					code.push push_segment[that.1] that.2
 				else if it.match /^pop (argument|local|static|this|that|pointer|temp) (\d+)$/
-					code.push "#{pop_segment[that.1] that.2} = RAM[ --RAM[0] ]"
+					code.push "#{pop_segment[that.1] that.2} = RAM[ --SP ]"
 				else if match = it.match /^function ([A-Za-z\._\:][\w_\.\:]+) (\d+)$/
 					flush! if current_fn
 					# start new function
@@ -130,28 +148,28 @@ flush = ->
 					current_fn := match.1
 					# initialize local variables
 					for j til parseInt match.2, 10
-						code.push "RAM[ RAM[0]++ ] = 0"
+						code.push "RAM[ SP++ ] = 0"
 					label := 1
 					labels := {}
 				else if it.match /^call ([A-Za-z\._\:][\w_\.\:]+) (\d+)$/
 					code.push do
-						"RAM[ RAM[0]++ ] = #{label}" # pushing return address as label addr
-						"RAM[ RAM[0]++ ] = RAM[ #LCL ]"
-						"RAM[ RAM[0]++ ] = RAM[ #ARG ]"
-						"RAM[ RAM[0]++ ] = RAM[ #THIS ]"
-						"RAM[ RAM[0]++ ] = RAM[ #THAT ]"
-						"RAM[ #ARG ] = RAM[0] - #{parseInt(that.2, 10) + 5}" # num of args + stack frame
-						"RAM[ #LCL ] = RAM[0]"
+						"RAM[ SP++ ] = #{label}" # pushing return address as label addr
+						"RAM[ SP++ ] = LCL"
+						"RAM[ SP++ ] = ARG"
+						"RAM[ SP++ ] = THIS"
+						"RAM[ SP++ ] = THAT"
+						"RAM[ #ARG ] = SP - #{parseInt(that.2, 10) + 5}" # num of args + stack frame
+						"RAM[ #LCL ] = SP"
 						"vm.callstack.push( vm.functions['#{that.1}'] )"
 						"vm.label = 0" # set starting address for called function to beginning (default)
 						"return" # give control to top of callstack
 						"case #{label++}: " # returned from function
 				else if it is \return
 					code.push do
-						"frame = RAM[ #LCL ]"
+						"frame = LCL"
 						"vm.label = RAM[ frame - 5 ]" # set "return address"
-						"RAM[ RAM[ #ARG ] ] = RAM[ --RAM[0] ]"
-						"RAM[0] = RAM[ #ARG ] + 1"
+						"RAM[ ARG ] = RAM[ --RAM[0] ]"
+						"RAM[0] = ARG + 1"
 						"RAM[ #THAT ] = RAM[ frame - 1 ]"
 						"RAM[ #THIS ] = RAM[ frame - 2 ]"
 						"RAM[ #ARG ] = RAM[ frame - 3 ]"
@@ -163,13 +181,13 @@ flush = ->
 				else if it.match /^goto ([A-Za-z\._\:][\w_\.\:]+)$/
 					code.push "label = #{labels[that.1] ?= label++ }; continue loop"
 				else if it.match /^if-goto ([A-Za-z\._\:][\w_\.\:]+)$/
-					code.push "if(RAM[ --RAM[0] ] !== 0) { label = #{labels[that.1] ?= label++ }; continue loop; }"
+					code.push "if(RAM[ --SP ] !== 0) { label = #{labels[that.1] ?= label++ }; continue loop; }"
 				else if arithmetic[it]
-					code.push "RAM[ --RAM[0] - 1 ] = RAM[ RAM[0] - 1 ] #that RAM[ RAM[0] ]"
+					code.push "RAM[ --SP - 1 ] = RAM[ SP - 1 ] #that RAM[ SP ]"
 				else if boolean[it]
-					code.push "RAM[ --RAM[0] - 1 ] = RAM[ RAM[0] - 1 ] #that RAM[ RAM[0] ] ? -1 : 0"
+					code.push "RAM[ --SP - 1 ] = RAM[ SP - 1 ] #that RAM[ SP ] ? -1 : 0"
 				else if unary[it]
-					code.push "RAM[ RAM[0] - 1 ] = #{that}RAM[ RAM[0] - 1 ]"
+					code.push "RAM[ SP - 1 ] = #{that}RAM[ SP - 1 ]"
 				else
 					throw new Error """couldn't parse "#it" around line #i in file "#name"!"""
 		# flush last function
