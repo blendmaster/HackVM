@@ -22,7 +22,7 @@ document.getElementById \file .addEventListener \change !->
 	# using multiple readers for parallel process is probably
 	# of dubious value
 	reader.onload = ->
-		file_texts.push @result
+		file_texts.push [@result, files.pop!.name]
 		if files.length is 0
 			try
 				translate file_texts
@@ -33,10 +33,10 @@ document.getElementById \file .addEventListener \change !->
 				start.textContent = "Start"
 				start.disabled = false
 		else
-			@readAsText files.pop!
+			@readAsText files[* - 1]
 	
 	if files.length > 0
-		reader.readAsText files.pop!
+		reader.readAsText files[* - 1]
 	else
 		alert "No non-OS .vm files found in your selection!"
 

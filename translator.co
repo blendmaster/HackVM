@@ -102,7 +102,9 @@ flush = ->
 	static_addr = 29
 	statics = {}
 
-	it.forEach !(input, idx)-> # for each file, with unique index
+	it.forEach !([input, name])-> # for each file
+		# skip blank files
+		return if not input or /^\s+$/.test input
 		# start fresh
 		current_fn := void
 
@@ -138,8 +140,8 @@ flush = ->
 				RAM[ SP++ ] = RAM[ THAT + #it ]"
 
 		# these are closed over the current file
-		push_segment.static = -> "RAM[ SP++ ] = RAM[ #{statics["#idx.#it"] ?= static_addr++} ]"
-		pop_segment.static = -> "RAM[ #{statics["#idx.#it"] ?= static_addr++} ]"
+		push_segment.static = -> "RAM[ SP++ ] = RAM[ #{statics["#name.#it"] ?= static_addr++} ]"
+		pop_segment.static = -> "RAM[ #{statics["#name.#it"] ?= static_addr++} ]"
 
 		input # strip comments and whitespace, then split into lines
 			.replace /\/\/.*/gm "" .trim! .split /\s*[\n\r]+\s*/
