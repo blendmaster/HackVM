@@ -32,7 +32,8 @@ push_segment =
 	argument: push_base ARG
 	local: push_base LCL
 	this: push_base THIS
-	# that defined inside loop to close over variables
+	# that defined inside loop to close over labels, so keyboard access can
+	# resume itself
 	temp: -> "RAM[ RAM[0]++ ] = RAM[ #{5 + parseInt it, 10} ]"
 	pointer: -> "RAM[ RAM[0]++ ] = RAM[ #{3 + parseInt it, 10} ]"
 
@@ -41,7 +42,11 @@ pop_segment =
 	argument: pop_to_base ARG
 	local: pop_to_base LCL
 	this: pop_to_base THIS
-	that: pop_to_base THAT
+	# need to handle writing to screen
+	that: -> 
+		"addr = RAM[ #THAT ] + #it;
+		if( addr >= 16384 && addr < 24576 ) { vm.map_screen( addr, RAM[ RAM[0] - 1 ] ); }
+		RAM[ addr ]"
 	temp: -> "RAM[ #{5 + parseInt it, 10} ]"
 	pointer: -> "RAM[ #{3 + parseInt it, 10} ]"
 
@@ -99,17 +104,13 @@ flush = ->
 		# this is defined here to take close over labels, so we can set
 		# a label for keyboard returns
 		push_segment.that = ->
-			# assuming only the 'that' pointer will be used to access keyboard and
-			# memory, so we can detect those and do the dirty work
-			# map_screen recieves the top address of the stack to convert into canvas
-			# pixels, while keyboard access pauses execution
+			# assuming only the 'that' pointer will be used to access keyboard
 			"addr = RAM[ #THAT ] + #it;
 			if( addr == 24576 ) {
 				vm.io = true;
 				vm.label = #label;
 				return;
 			}
-			if( addr >= 16384 ) { vm.map_screen( addr, RAM[ addr ] ); }
 			case #{label++}: 
 				RAM[ RAM[0]++ ] = RAM[ RAM[ #THAT ] + #it ]"
 
