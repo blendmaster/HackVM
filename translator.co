@@ -59,13 +59,11 @@ code = []
 
 # adds boilerplate and pushes a new function object with internal code
 # equivalent to VM function
-# caches SP, LCL, ARG, THIS, and THAT as local variables to take advantage
-# of native JS more. The pointers are only recommited to RAM on function calls
 flush = ->
 	vm.functions[current_fn] = new Function do
 		'label'
 		"
-		var RAM = vm.RAM, SP = RAM[0], LCL = RAM[1], ARG = RAM[2], THIS = RAM[3], THAT = RAM[4], frame, addr;
+		var RAM = vm.RAM, frame, addr;
 		loop: for(;;) {
 			switch( label ) {
 				case 0: #{code.join ';'};
